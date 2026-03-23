@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -106,7 +107,9 @@ async def run(config: AppConfig):
     if config.web.enabled:
         from .web import create_app
         app = create_app()
-        web_config = uvicorn.Config(app, host="0.0.0.0", port=config.web.port, log_level="warning")
+        # Render sets PORT env var — use it if available
+        port = int(os.environ.get("PORT", config.web.port))
+        web_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
         server = uvicorn.Server(web_config)
         web_task = asyncio.create_task(server.serve())
         logger.info(f"Web UI available at http://localhost:{config.web.port}")
