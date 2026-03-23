@@ -1,0 +1,11 @@
+services:
+  notifier:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8550:8550"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./data:/app/data
+    environment:
+      - TZ=America/New_York

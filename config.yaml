@@ -1,0 +1,60 @@
+# =============================================================================
+# Notifier Configuration
+# =============================================================================
+# 1. Install the ntfy app on your iPhone: https://ntfy.sh
+# 2. Subscribe to your topic in the app (use the same topic name below)
+# 3. Edit this file or use the web UI at http://localhost:8550
+# 4. Run: docker compose up -d
+# =============================================================================
+
+ntfy:
+  server: "https://ntfy.sh"
+  topic: "iranwar-notifiert"
+  default_priority: 3                       # 1=min, 3=default, 5=urgent
+
+# Don't send notifications for items that already exist on first startup
+notify_on_first_run: false
+
+# Global keywords — applied to all channels unless the channel overrides them.
+# Channels with `keywords: []` (empty list) notify on ALL posts from that source.
+# Channels without a `keywords` key inherit these global keywords.
+keywords:
+  - "iran"
+  - "war"
+  - "breaking"
+  - pattern: "executive\\s+order"
+    regex: true
+
+logging:
+  level: "INFO"   # DEBUG, INFO, WARNING, ERROR
+
+# Web UI for configuration
+web:
+  enabled: true
+  port: 8550
+
+# =============================================================================
+# Channels
+# =============================================================================
+channels:
+
+  # --- Reddit ---
+  - name: "Reddit worldnews"
+    type: reddit
+    subreddits:
+      - "worldnews"
+      - "wallstreetbetsGER"
+    sort: "new"
+    poll_interval: 600
+    # inherits global keywords
+
+  # --- RSS Feeds ---
+  - name: "BBC News"
+    type: rss
+    feeds:
+      - "http://feeds.bbci.co.uk/news/world/rss.xml"
+    poll_interval: 900          # 15 minutes
+    keywords:
+      - "iran"
+      - "war"
+      - "sanctions"
