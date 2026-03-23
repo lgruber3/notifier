@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import signal
 from collections import deque
 from pathlib import Path
 
 import httpx
 import yaml
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
 from .config import (
@@ -21,6 +22,14 @@ logger = logging.getLogger(__name__)
 log_buffer: deque[dict] = deque(maxlen=200)
 
 CONFIG_PATH = Path("config.yaml")
+
+# Callback set by main.py to reload config without full restart
+_reload_callback = None
+
+
+def set_reload_callback(cb):
+    global _reload_callback
+    _reload_callback = cb
 
 
 class WebLogHandler(logging.Handler):
@@ -62,12 +71,20 @@ async def api_config_get(request):
 async def api_config_save(request):
     body = await request.json()
     try:
-        # Write the config directly as YAML
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             yaml.dump(body, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        return JSONResponse({"ok": True, "message": "Config saved. Restart the container to apply changes."})
+
+        # Hot-reload: re-read config and rebuild scheduler
+        if _reload_callback:
+            await _reload_callback()
+            return JSONResponse({"ok": True, "message": "Config saved and applied!"})
+        return JSONResponse({"ok": True, "message": "Config saved. Restart to apply."})
     except Exception as e:
         return JSONResponse({"ok": False, "message": str(e)}, status_code=400)
+
+
+async def healthz(request):
+    return PlainTextResponse("ok")
 
 
 async def api_test_notification(request):
@@ -101,6 +118,7 @@ def create_app() -> Starlette:
     return Starlette(
         routes=[
             Route("/", index),
+            Route("/healthz", healthz, methods=["GET"]),
             Route("/api/config", api_config_get, methods=["GET"]),
             Route("/api/config", api_config_save, methods=["POST"]),
             Route("/api/test", api_test_notification, methods=["POST"]),
@@ -318,7 +336,7 @@ HTML_PAGE = """\
   <!-- Save bar -->
   <div class="actions" style="margin-top:24px;">
     <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
-    <span class="subtitle" style="margin:0;align-self:center;">Restart container after saving to apply changes</span>
+    <span class="subtitle" style="margin:0;align-self:center;">Changes apply immediately after saving</span>
   </div>
 </div>
 

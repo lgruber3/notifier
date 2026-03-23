@@ -17,6 +17,8 @@ from .notify import NtfyNotifier
 
 logger = logging.getLogger("notifier")
 
+CONFIG_PATH = Path("config.yaml")
+
 
 def setup_logging(level: str):
     logging.basicConfig(
@@ -64,6 +66,24 @@ async def poll_channel(monitor, matcher: Matcher, notifier: NtfyNotifier,
         logger.exception(f"[{channel_name}] Error during poll")
 
 
+def schedule_channels(scheduler: AsyncIOScheduler, config: AppConfig,
+                      client: httpx.AsyncClient, notifier: NtfyNotifier,
+                      dedup: DeduplicationStore):
+    """Add all channel jobs to the scheduler."""
+    for ch in config.channels:
+        monitor = create_monitor(ch, client)
+        matcher = Matcher(config.global_keywords, ch.keywords)
+
+        async def make_job(mon=monitor, mat=matcher, name=ch.name,
+                           prio=ch.priority, first_run=config.notify_on_first_run):
+            await poll_channel(mon, mat, notifier, dedup, name, prio, first_run)
+
+        scheduler.add_job(make_job, "interval", seconds=ch.poll_interval,
+                          id=ch.name, name=ch.name, max_instances=1)
+        scheduler.add_job(make_job, id=f"{ch.name}_init", name=f"{ch.name}_init")
+        logger.info(f"Scheduled '{ch.name}' (type={ch.type}) every {ch.poll_interval}s")
+
+
 async def run(config: AppConfig):
     client = httpx.AsyncClient(
         timeout=30,
@@ -79,40 +99,44 @@ async def run(config: AppConfig):
     )
 
     scheduler = AsyncIOScheduler()
-
-    for ch in config.channels:
-        monitor = create_monitor(ch, client)
-        matcher = Matcher(config.global_keywords, ch.keywords)
-
-        async def make_job(mon=monitor, mat=matcher, name=ch.name,
-                           prio=ch.priority, first_run=config.notify_on_first_run):
-            await poll_channel(mon, mat, notifier, dedup, name, prio, first_run)
-
-        # Schedule recurring poll
-        scheduler.add_job(make_job, "interval", seconds=ch.poll_interval,
-                          id=ch.name, name=ch.name, max_instances=1)
-        # Run once immediately at startup
-        scheduler.add_job(make_job, id=f"{ch.name}_init", name=f"{ch.name}_init")
-
-        logger.info(f"Scheduled '{ch.name}' (type={ch.type}) every {ch.poll_interval}s")
-
-    # Daily cleanup at 3 AM
+    schedule_channels(scheduler, config, client, notifier, dedup)
     scheduler.add_job(dedup.cleanup, "cron", hour=3, id="dedup_cleanup")
-
     scheduler.start()
     logger.info("Notifier started. Monitoring channels...")
+
+    # Hot-reload callback: re-read config, rebuild scheduler jobs
+    async def reload_config():
+        logger.info("Reloading configuration...")
+        try:
+            new_config = load_config(CONFIG_PATH)
+
+            # Update notifier settings
+            notifier.url = f"{new_config.ntfy.server.rstrip('/')}/{new_config.ntfy.topic}"
+            notifier.default_priority = new_config.ntfy.default_priority
+
+            # Remove all existing channel jobs (keep dedup_cleanup)
+            for job in scheduler.get_jobs():
+                if job.id != "dedup_cleanup":
+                    job.remove()
+
+            # Re-add channels from new config
+            schedule_channels(scheduler, new_config, client, notifier, dedup)
+            logger.info("Configuration reloaded successfully")
+        except Exception:
+            logger.exception("Failed to reload configuration")
+            raise
 
     # Start web UI if enabled
     web_task = None
     if config.web.enabled:
-        from .web import create_app
+        from .web import create_app, set_reload_callback
+        set_reload_callback(reload_config)
         app = create_app()
-        # Render sets PORT env var — use it if available
         port = int(os.environ.get("PORT", config.web.port))
         web_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
         server = uvicorn.Server(web_config)
         web_task = asyncio.create_task(server.serve())
-        logger.info(f"Web UI available at http://localhost:{config.web.port}")
+        logger.info(f"Web UI available at http://localhost:{port}")
 
     try:
         await asyncio.Event().wait()
@@ -127,12 +151,11 @@ async def run(config: AppConfig):
 
 
 def main():
-    config_path = Path("config.yaml")
-    if not config_path.exists():
+    if not CONFIG_PATH.exists():
         print("ERROR: config.yaml not found. Copy config.example.yaml and edit it.")
         sys.exit(1)
 
-    config = load_config(config_path)
+    config = load_config(CONFIG_PATH)
     setup_logging(config.log_level)
     asyncio.run(run(config))
 
