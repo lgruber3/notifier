@@ -20,10 +20,11 @@ def _sanitize_header(value: str) -> str:
 
 
 class NtfyNotifier:
-    def __init__(self, server: str, topic: str, default_priority: int, client: httpx.AsyncClient):
+    def __init__(self, server: str, topic: str, default_priority: int, client: httpx.AsyncClient, icon: str | None = None):
         self.url = f"{server.rstrip('/')}/{topic}"
         self.default_priority = default_priority
         self.client = client
+        self.icon = icon
 
     async def send(self, notification: Notification):
         priority = notification.priority or self.default_priority
@@ -36,6 +37,8 @@ class NtfyNotifier:
             headers["Click"] = notification.url
         if notification.tags:
             headers["Tags"] = ",".join(notification.tags[:5])
+        if self.icon:
+            headers["Icon"] = self.icon
 
         body = notification.body[:4000] if notification.body else ""
 

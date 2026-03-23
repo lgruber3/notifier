@@ -19,7 +19,16 @@ TAG_RE = re.compile(r"<[^>]+>")
 
 
 def strip_html(text: str) -> str:
-    return TAG_RE.sub("", text).strip()
+    # Remove Reddit's "submitted by ... [link] [comments]" table boilerplate
+    if "<table>" in text:
+        text = text[:text.rfind("<table>")]
+    # Remove HTML comments (<!-- SC_OFF --> etc.)
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    # Strip remaining tags
+    text = TAG_RE.sub("", text)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 class RedditMonitor(BaseMonitor):

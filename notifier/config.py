@@ -13,6 +13,7 @@ class NtfyConfig:
     server: str = "https://ntfy.sh"
     topic: str = "changeme"
     default_priority: int = 3
+    icon: str | None = None
 
 
 @dataclass
@@ -25,7 +26,7 @@ class KeywordRule:
         if self.is_regex:
             self.compiled = re.compile(self.pattern, re.IGNORECASE)
         else:
-            self.compiled = re.compile(re.escape(self.pattern), re.IGNORECASE)
+            self.compiled = re.compile(r"\b" + re.escape(self.pattern) + r"\b", re.IGNORECASE)
 
 
 @dataclass
@@ -87,6 +88,7 @@ def load_config(path: str | Path) -> AppConfig:
         server=ntfy_raw.get("server", "https://ntfy.sh"),
         topic=ntfy_raw.get("topic", "changeme"),
         default_priority=ntfy_raw.get("default_priority", 3),
+        icon=ntfy_raw.get("icon"),
     )
 
     global_keywords = _parse_keywords(raw.get("keywords", [])) or []
@@ -146,12 +148,15 @@ def _keywords_to_raw(keywords: list[KeywordRule] | None) -> list | None:
 
 def save_config(config: AppConfig, path: str | Path):
     """Serialize AppConfig back to YAML."""
+    ntfy_raw = {
+        "server": config.ntfy.server,
+        "topic": config.ntfy.topic,
+        "default_priority": config.ntfy.default_priority,
+    }
+    if config.ntfy.icon:
+        ntfy_raw["icon"] = config.ntfy.icon
     raw = {
-        "ntfy": {
-            "server": config.ntfy.server,
-            "topic": config.ntfy.topic,
-            "default_priority": config.ntfy.default_priority,
-        },
+        "ntfy": ntfy_raw,
         "notify_on_first_run": config.notify_on_first_run,
         "keywords": _keywords_to_raw(config.global_keywords) or [],
         "logging": {"level": config.log_level},

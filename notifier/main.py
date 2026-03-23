@@ -46,8 +46,18 @@ async def poll_channel(monitor, matcher: Matcher, notifier: NtfyNotifier,
 
             if matched_keywords and not (is_first_run and not notify_on_first_run):
                 title = f"[{channel_name}] {item.title[:80]}"
-                body = item.body[:500] if item.body else ""
-                tags = [monitor.config.type] + matched_keywords[:3]
+                body_parts = []
+                if item.body:
+                    body_parts.append(item.body[:400])
+                meta_parts = []
+                if item.author:
+                    meta_parts.append(f"u/{item.author}")
+                if matched_keywords != ["*"]:
+                    meta_parts.append(f"keywords: {', '.join(matched_keywords)}")
+                if meta_parts:
+                    body_parts.append(" | ".join(meta_parts))
+                body = "\n".join(body_parts)
+                tags = [monitor.config.type] + [kw for kw in matched_keywords[:3] if kw != "*"]
 
                 await notifier.send(Notification(
                     title=title,
@@ -99,6 +109,7 @@ async def run(config: AppConfig):
         topic=config.ntfy.topic,
         default_priority=config.ntfy.default_priority,
         client=client,
+        icon=config.ntfy.icon,
     )
 
     scheduler = AsyncIOScheduler()
@@ -116,6 +127,7 @@ async def run(config: AppConfig):
             # Update notifier settings
             notifier.url = f"{new_config.ntfy.server.rstrip('/')}/{new_config.ntfy.topic}"
             notifier.default_priority = new_config.ntfy.default_priority
+            notifier.icon = new_config.ntfy.icon
 
             # Remove all existing channel jobs (keep dedup_cleanup)
             for job in scheduler.get_jobs():

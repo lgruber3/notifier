@@ -2,6 +2,7 @@ ntfy:
   server: https://ntfy.sh
   topic: iranwar-notifiert
   default_priority: 3
+  # icon: https://example.com/your-icon.png
 notify_on_first_run: false
 keywords:
 - iran
